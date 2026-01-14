@@ -16,12 +16,12 @@ from typing import Any, cast
 import torch
 import torch.distributed as dist
 import torch.nn as nn
-from diffusers import AutoModel
 from safetensors.torch import load_file as safetensors_load_file
 from torch.distributed import init_device_mesh
 from transformers import AutoImageProcessor, AutoProcessor, AutoTokenizer
 from transformers.utils import SAFE_WEIGHTS_INDEX_NAME
 
+from diffusers import AutoModel
 from sglang.multimodal_gen.configs.models import EncoderConfig, ModelConfig
 from sglang.multimodal_gen.configs.pipeline_configs.qwen_image import (
     QwenImageEditPipelineConfig,
@@ -735,6 +735,7 @@ class TransformerLoader(ComponentLoader):
             reduce_dtype=torch.float32,
             output_dtype=None,
             strict=False,
+            layerwise_offload=server_args.dit_layerwise_offload,
         )
 
         total_params = sum(p.numel() for p in model.parameters())
