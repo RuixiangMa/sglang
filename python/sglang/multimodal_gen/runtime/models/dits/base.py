@@ -9,6 +9,7 @@ from torch import nn
 
 from sglang.multimodal_gen.configs.models import DiTConfig
 from sglang.multimodal_gen.runtime.platforms import AttentionBackendEnum
+from sglang.multimodal_gen.runtime.utils.adacache import AdaCacheManager
 
 
 # TODO
@@ -79,9 +80,10 @@ class BaseDiT(nn.Module, ABC):
 
 class CachableDiT(BaseDiT):
     """
-    An intermediate base class that adds TeaCache optimization functionality to DiT models.
+    An intermediate base class that adds TeaCache and AdaCache optimization functionality to DiT models.
     TeaCache accelerates inference by selectively skipping redundant computation when consecutive
     diffusion steps are similar enough.
+    AdaCache provides runtime-adaptive caching with dynamic threshold adjustment.
     """
 
     # These are required class attributes that should be overridden by concrete implementations
@@ -105,6 +107,9 @@ class CachableDiT(BaseDiT):
         self.teacache_thresh = 0
         self.coefficients: list[float] = []
 
+        # AdaCache manager
+        self.adacache_manager: AdaCacheManager | None = None
+
         # NOTE(will): Only wan2.1 needs these, so we are hardcoding it here
         if self.config.prefix == "wan":
             self.use_ret_steps = self.config.cache_config.use_ret_steps
@@ -121,6 +126,15 @@ class CachableDiT(BaseDiT):
             self.previous_resiual = None
         self.previous_e0_even: torch.Tensor | None = None
         self.previous_e0_odd: torch.Tensor | None = None
+
+    def init_adacache(self, adacache_params) -> None:
+        """
+        Initialize AdaCache manager with given parameters.
+        
+        Args:
+            adacache_params: AdaCacheParams or WanAdaCacheParams
+        """
+        self.adacache_manager = AdaCacheManager(adacache_params)
 
     def maybe_cache_states(
         self, hidden_states: torch.Tensor, original_hidden_states: torch.Tensor

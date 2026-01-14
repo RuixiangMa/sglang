@@ -9,6 +9,7 @@ import torch
 import torch.nn as nn
 
 from sglang.multimodal_gen.configs.models.dits import HunyuanVideoConfig
+from sglang.multimodal_gen.configs.sample.adacache import AdaCacheParams
 from sglang.multimodal_gen.configs.sample.teacache import TeaCacheParams
 from sglang.multimodal_gen.runtime.distributed.parallel_state import get_sp_world_size
 from sglang.multimodal_gen.runtime.layers.attention import (
@@ -553,6 +554,7 @@ class HunyuanVideoTransformer3DModel(CachableDiT, OffloadableDiTMixin):
         forward_context = get_forward_context()
         forward_batch = forward_context.forward_batch
         enable_teacache = forward_batch is not None and forward_batch.enable_teacache
+        enable_adacache = forward_batch is not None and forward_batch.enable_adacache
 
         if guidance is None:
             guidance = torch.tensor(
@@ -605,14 +607,20 @@ class HunyuanVideoTransformer3DModel(CachableDiT, OffloadableDiTMixin):
 
         freqs_cis = (freqs_cos, freqs_sin) if freqs_cos is not None else None
 
-        should_skip_forward = self.should_skip_forward_for_cached_states(
-            img=img, vec=vec
-        )
+        should_skip_forward = False
+        if enable_adacache:
+            should_skip_forward = self.should_skip_forward_for_adacache(
+                img=img, vec=vec
+            )
+        elif enable_teacache:
+            should_skip_forward = self.should_skip_forward_for_cached_states(
+                img=img, vec=vec
+            )
 
         if should_skip_forward:
             img = self.retrieve_cached_states(img)
         else:
-            if enable_teacache:
+            if enable_teacache or enable_adacache:
                 original_img = img.clone()
 
             # Process through double stream blocks
@@ -638,6 +646,8 @@ class HunyuanVideoTransformer3DModel(CachableDiT, OffloadableDiTMixin):
 
             if enable_teacache:
                 self.maybe_cache_states(img, original_img)
+            elif enable_adacache:
+                self.maybe_cache_states_adacache(img, original_img)
 
         # Final layer processing
         img = self.final_layer(img, vec)
@@ -750,7 +760,57 @@ class HunyuanVideoTransformer3DModel(CachableDiT, OffloadableDiTMixin):
 
         return not should_calc
 
+    def should_skip_forward_for_adacache(self, **kwargs) -> bool:
+        """
+        AdaCache-specific cache decision for HunyuanVideo models.
+        """
+        forward_context = get_forward_context()
+        forward_batch = forward_context.forward_batch
+        if forward_batch is None or not forward_batch.enable_adacache:
+            return False
+        
+        # Initialize AdaCache manager if not already initialized
+        if self.adacache_manager is None:
+            adacache_params = forward_batch.adacache_params
+            assert adacache_params is not None, "adacache_params is not initialized"
+            assert isinstance(
+                adacache_params, AdaCacheParams
+            ), "adacache_params is not a AdaCacheParams"
+            self.init_adacache(adacache_params)
+        
+        current_timestep = forward_context.current_timestep
+        num_inference_steps = forward_batch.num_inference_steps
+        
+        # Use img (hidden states) as features for AdaCache
+        img = kwargs["img"]
+        
+        return self.adacache_manager.should_use_cache(
+            img, current_timestep, num_inference_steps
+        )
+
+    def maybe_cache_states_adacache(
+        self, hidden_states: torch.Tensor, original_hidden_states: torch.Tensor
+    ) -> None:
+        """
+        Cache states for AdaCache.
+        """
+        if self.adacache_manager is None:
+            return
+        
+        # For AdaCache, we cache the features and residual
+        self.adacache_manager.cache_features(hidden_states, original_hidden_states)
+
     def retrieve_cached_states(self, hidden_states: torch.Tensor) -> torch.Tensor:
+        # Check which cache method is being used
+        forward_context = get_forward_context()
+        forward_batch = forward_context.forward_batch
+        
+        if forward_batch is not None and forward_batch.enable_adacache:
+            # Use AdaCache retrieval
+            if self.adacache_manager is not None:
+                return self.adacache_manager.retrieve_cached_states(hidden_states)
+        
+        # Use TeaCache retrieval (original implementation)
         return hidden_states + self.previous_residual
 
 

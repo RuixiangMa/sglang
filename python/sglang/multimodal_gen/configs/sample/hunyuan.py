@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 from dataclasses import dataclass, field
 
+from sglang.multimodal_gen.configs.sample.adacache import AdaCacheParams
 from sglang.multimodal_gen.configs.sample.sampling_params import SamplingParams
 from sglang.multimodal_gen.configs.sample.teacache import TeaCacheParams
 
@@ -46,6 +47,18 @@ class HunyuanSamplingParams(SamplingParams):
                 -3.14987800e00,
                 9.61237896e-02,
             ],
+        )
+    )
+
+    adacache_params: AdaCacheParams = field(
+        default_factory=lambda: AdaCacheParams(
+            adacache_threshold=0.1,
+            adacache_decay_factor=0.9,
+            adacache_growth_factor=1.1,
+            adacache_min_threshold=0.05,
+            adacache_max_threshold=0.5,
+            adacache_warmup_steps=2,
+            adacache_diff_method="combined",
         )
     )
 

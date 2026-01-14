@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 from dataclasses import dataclass, field
 
+from sglang.multimodal_gen.configs.sample.adacache import WanAdaCacheParams
 from sglang.multimodal_gen.configs.sample.sampling_params import SamplingParams
 from sglang.multimodal_gen.configs.sample.teacache import WanTeaCacheParams
 
@@ -47,6 +48,19 @@ class WanT2V_1_3B_SamplingParams(SamplingParams):
                 -8.29855975e00,
                 1.37887774e-01,
             ],
+        )
+    )
+
+    adacache_params: WanAdaCacheParams = field(
+        default_factory=lambda: WanAdaCacheParams(
+            adacache_threshold=0.1,
+            adacache_decay_factor=0.9,
+            adacache_growth_factor=1.1,
+            adacache_min_threshold=0.05,
+            adacache_max_threshold=0.5,
+            adacache_warmup_steps=2,
+            adacache_diff_method="combined",
+            use_ret_steps=True,
         )
     )
 
@@ -97,6 +111,19 @@ class WanT2V_14B_SamplingParams(SamplingParams):
         )
     )
 
+    adacache_params: WanAdaCacheParams = field(
+        default_factory=lambda: WanAdaCacheParams(
+            adacache_threshold=0.1,
+            adacache_decay_factor=0.9,
+            adacache_growth_factor=1.1,
+            adacache_min_threshold=0.05,
+            adacache_max_threshold=0.5,
+            adacache_warmup_steps=2,
+            adacache_diff_method="combined",
+            use_ret_steps=False,
+        )
+    )
+
 
 @dataclass
 class WanI2V_14B_480P_SamplingParam(WanT2V_1_3B_SamplingParams):
@@ -130,6 +157,19 @@ class WanI2V_14B_480P_SamplingParam(WanT2V_1_3B_SamplingParams):
                 256.27178429,
                 -13.02252404,
             ],
+        )
+    )
+
+    adacache_params: WanAdaCacheParams = field(
+        default_factory=lambda: WanAdaCacheParams(
+            adacache_threshold=0.1,
+            adacache_decay_factor=0.9,
+            adacache_growth_factor=1.1,
+            adacache_min_threshold=0.05,
+            adacache_max_threshold=0.5,
+            adacache_warmup_steps=2,
+            adacache_diff_method="combined",
+            use_ret_steps=True,
         )
     )
 
@@ -168,6 +208,19 @@ class WanI2V_14B_720P_SamplingParam(WanT2V_14B_SamplingParams):
                 256.27178429,
                 -13.02252404,
             ],
+        )
+    )
+
+    adacache_params: WanAdaCacheParams = field(
+        default_factory=lambda: WanAdaCacheParams(
+            adacache_threshold=0.1,
+            adacache_decay_factor=0.9,
+            adacache_growth_factor=1.1,
+            adacache_min_threshold=0.05,
+            adacache_max_threshold=0.5,
+            adacache_warmup_steps=2,
+            adacache_diff_method="combined",
+            use_ret_steps=True,
         )
     )
 

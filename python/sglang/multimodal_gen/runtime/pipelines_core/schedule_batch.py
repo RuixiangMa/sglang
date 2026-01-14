@@ -19,6 +19,10 @@ from typing import Any, Optional
 import PIL.Image
 import torch
 
+from sglang.multimodal_gen.configs.sample.adacache import (
+    AdaCacheParams,
+    WanAdaCacheParams,
+)
 from sglang.multimodal_gen.configs.sample.sampling_params import SamplingParams
 from sglang.multimodal_gen.configs.sample.teacache import (
     TeaCacheParams,
@@ -123,6 +127,11 @@ class Req:
 
     # TeaCache parameters
     teacache_params: TeaCacheParams | WanTeaCacheParams | None = None
+    enable_teacache: bool = False
+
+    # AdaCache parameters
+    adacache_params: AdaCacheParams | WanAdaCacheParams | None = None
+    enable_adacache: bool = False
 
     # STA parameters
     STA_param: list | None = None
@@ -240,6 +249,21 @@ class Req:
             self.negative_prompt_embeds = []
         if self.guidance_scale_2 is None:
             self.guidance_scale_2 = self.guidance_scale
+
+        # Set enable_teacache and enable_adacache based on params
+        # For TeaCache: enable if teacache_params is not None
+        self.enable_teacache = self.teacache_params is not None
+        
+        # For AdaCache: enable if adacache_params is not None AND enable_adacache is not False
+        # Note: enable_adacache can be False (explicitly disabled), True (explicitly enabled), or None (use default)
+        # If enable_adacache is None, use adacache_params is not None
+        # If enable_adacache is True, use adacache_params is not None
+        # If enable_adacache is False, disable AdaCache regardless of adacache_params
+        if hasattr(self, 'enable_adacache') and self.enable_adacache is False:
+            self.enable_adacache = False
+            self.adacache_params = None
+        else:
+            self.enable_adacache = self.adacache_params is not None
 
         self.timings = RequestTimings(request_id=self.request_id)
 

@@ -131,6 +131,16 @@ class SamplingParams:
     # TeaCache parameters
     enable_teacache: bool = False
 
+    # AdaCache parameters
+    enable_adacache: bool | None = None
+    adacache_threshold: float = 0.1
+    adacache_decay_factor: float = 0.9
+    adacache_growth_factor: float = 1.1
+    adacache_min_threshold: float = 0.05
+    adacache_max_threshold: float = 0.5
+    adacache_warmup_steps: int = 2
+    adacache_diff_method: str = "combined"
+
     # Profiling
     profile: bool = False
     num_profiled_timesteps: int = 5
@@ -486,6 +496,57 @@ class SamplingParams:
             "--enable-teacache",
             action="store_true",
             default=SamplingParams.enable_teacache,
+        )
+
+        # AdaCache
+        parser.add_argument(
+            "--enable-adacache",
+            action="store_true",
+            default=None,
+            help="Enable AdaCache (adaptive caching) for DiT acceleration (2.6-4.7x speedup)",
+        )
+        parser.add_argument(
+            "--adacache-threshold",
+            type=float,
+            default=SamplingParams.adacache_threshold,
+            help="Initial threshold for AdaCache feature difference (0.05-0.5, default: 0.1)",
+        )
+        parser.add_argument(
+            "--adacache-decay-factor",
+            type=float,
+            default=SamplingParams.adacache_decay_factor,
+            help="Decay factor for AdaCache threshold when cache is hit (0.8-0.95, default: 0.9)",
+        )
+        parser.add_argument(
+            "--adacache-growth-factor",
+            type=float,
+            default=SamplingParams.adacache_growth_factor,
+            help="Growth factor for AdaCache threshold when cache is missed (1.05-1.15, default: 1.1)",
+        )
+        parser.add_argument(
+            "--adacache-min-threshold",
+            type=float,
+            default=SamplingParams.adacache_min_threshold,
+            help="Minimum threshold for AdaCache to prevent overly aggressive caching (default: 0.05)",
+        )
+        parser.add_argument(
+            "--adacache-max-threshold",
+            type=float,
+            default=SamplingParams.adacache_max_threshold,
+            help="Maximum threshold for AdaCache to prevent overly conservative caching (default: 0.5)",
+        )
+        parser.add_argument(
+            "--adacache-warmup-steps",
+            type=int,
+            default=SamplingParams.adacache_warmup_steps,
+            help="Number of warmup steps before AdaCache caching starts (default: 2)",
+        )
+        parser.add_argument(
+            "--adacache-diff-method",
+            type=str,
+            default=SamplingParams.adacache_diff_method,
+            choices=["l2", "cosine", "combined"],
+            help="Feature difference computation method for AdaCache (default: combined)",
         )
 
         # profiling

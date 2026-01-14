@@ -81,6 +81,10 @@ class VideoGenerationsRequest(BaseModel):
     )
     negative_prompt: Optional[str] = None
     enable_teacache: Optional[bool] = False
+    enable_adacache: Optional[bool] = False
+    adacache_threshold: Optional[float] = None
+    adacache_warmup_steps: Optional[int] = None
+    adacache_diff_method: Optional[str] = None
     output_path: Optional[str] = None
     diffusers_kwargs: Optional[Dict[str, Any]] = None  # kwargs for diffusers backend
 

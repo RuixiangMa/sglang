@@ -85,6 +85,14 @@ def _build_sampling_params_from_request(
         sampling_kwargs["negative_prompt"] = request.negative_prompt
     if request.enable_teacache is not None:
         sampling_kwargs["enable_teacache"] = request.enable_teacache
+    if request.enable_adacache is True:
+        sampling_kwargs["enable_adacache"] = True
+    if request.adacache_threshold is not None:
+        sampling_kwargs["adacache_threshold"] = request.adacache_threshold
+    if request.adacache_warmup_steps is not None:
+        sampling_kwargs["adacache_warmup_steps"] = request.adacache_warmup_steps
+    if request.adacache_diff_method is not None:
+        sampling_kwargs["adacache_diff_method"] = request.adacache_diff_method
     if request.output_path is not None:
         sampling_kwargs["output_path"] = request.output_path
     sampling_params = SamplingParams.from_user_sampling_params_args(
@@ -164,6 +172,10 @@ async def create_video(
     guidance_scale: Optional[float] = Form(None),
     num_inference_steps: Optional[int] = Form(None),
     enable_teacache: Optional[bool] = Form(False),
+    enable_adacache: Optional[bool] = Form(False),
+    adacache_threshold: Optional[float] = Form(None),
+    adacache_warmup_steps: Optional[int] = Form(None),
+    adacache_diff_method: Optional[str] = Form(None),
     extra_body: Optional[str] = Form(None),
 ):
     content_type = request.headers.get("content-type", "").lower()
@@ -217,6 +229,10 @@ async def create_video(
             negative_prompt=negative_prompt,
             num_inference_steps=num_inference_steps,
             enable_teacache=enable_teacache,
+            enable_adacache=enable_adacache,
+            adacache_threshold=adacache_threshold,
+            adacache_warmup_steps=adacache_warmup_steps,
+            adacache_diff_method=adacache_diff_method,
             **(
                 {"guidance_scale": guidance_scale} if guidance_scale is not None else {}
             ),

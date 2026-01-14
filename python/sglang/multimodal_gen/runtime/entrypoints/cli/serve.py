@@ -25,7 +25,10 @@ def add_multimodal_gen_serve_args(parser: argparse.ArgumentParser):
         required=False,
         help="Read CLI options from a config JSON or YAML file.",
     )
-    return ServerArgs.add_cli_args(parser)
+    parser = ServerArgs.add_cli_args(parser)
+    from sglang.multimodal_gen.configs.sample.sampling_params import SamplingParams
+    parser = SamplingParams.add_cli_args(parser)
+    return parser
 
 
 def execute_serve_cmd(args: argparse.Namespace, unknown_args: list[str] | None = None):

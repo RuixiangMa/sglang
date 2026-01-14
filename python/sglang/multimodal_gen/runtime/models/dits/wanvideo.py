@@ -10,6 +10,7 @@ import torch
 import torch.nn as nn
 
 from sglang.multimodal_gen.configs.models.dits import WanVideoConfig
+from sglang.multimodal_gen.configs.sample.adacache import WanAdaCacheParams
 from sglang.multimodal_gen.configs.sample.wan import WanTeaCacheParams
 from sglang.multimodal_gen.runtime.distributed import divide
 from sglang.multimodal_gen.runtime.distributed.parallel_state import (
@@ -789,6 +790,9 @@ class WanTransformer3DModel(CachableDiT, OffloadableDiTMixin):
     ) -> torch.Tensor:
         forward_batch = get_forward_context().forward_batch
         enable_teacache = forward_batch is not None and forward_batch.enable_teacache
+        enable_adacache = forward_batch is not None and forward_batch.enable_adacache
+        
+        # logger.info(f"Wan forward: enable_teacache={enable_teacache}, enable_adacache={enable_adacache}")
 
         orig_dtype = hidden_states.dtype
         if not isinstance(encoder_hidden_states, torch.Tensor):
@@ -865,24 +869,32 @@ class WanTransformer3DModel(CachableDiT, OffloadableDiTMixin):
 
         # 4. Transformer blocks
         # if caching is enabled, we might be able to skip the forward pass
-        should_skip_forward = self.should_skip_forward_for_cached_states(
-            timestep_proj=timestep_proj, temb=temb
-        )
+        should_skip_forward = False
+        if enable_adacache:
+            should_skip_forward = self.should_skip_forward_for_adacache(
+                timestep_proj=timestep_proj, temb=temb
+            )
+        elif enable_teacache:
+            should_skip_forward = self.should_skip_forward_for_cached_states(
+                timestep_proj=timestep_proj, temb=temb
+            )
 
         if should_skip_forward:
             hidden_states = self.retrieve_cached_states(hidden_states)
         else:
-            # if teacache is enabled, we need to cache the original hidden states
-            if enable_teacache:
+            # if teacache or adacache is enabled, we need to cache the original hidden states
+            if enable_teacache or enable_adacache:
                 original_hidden_states = hidden_states.clone()
 
             for block in self.blocks:
                 hidden_states = block(
                     hidden_states, encoder_hidden_states, timestep_proj, freqs_cis
                 )
-            # if teacache is enabled, we need to cache the original hidden states
+            # if teacache or adacache is enabled, we need to cache the original hidden states
             if enable_teacache:
                 self.maybe_cache_states(hidden_states, original_hidden_states)
+            elif enable_adacache:
+                self.maybe_cache_states_adacache(hidden_states, original_hidden_states)
         # 5. Output norm, projection & unpatchify
         if temb.dim() == 3:
             # batch_size, seq_len, inner_dim (wan 2.2 ti2v)
@@ -1019,7 +1031,66 @@ class WanTransformer3DModel(CachableDiT, OffloadableDiTMixin):
 
         return should_skip_forward
 
+    def should_skip_forward_for_adacache(self, **kwargs) -> bool:
+        """
+        AdaCache-specific cache decision for Wan models.
+        """
+        forward_context = get_forward_context()
+        forward_batch = forward_context.forward_batch
+        if forward_batch is None or not forward_batch.enable_adacache:
+            return False
+        
+        # Initialize AdaCache manager if not already initialized
+        if self.adacache_manager is None:
+            adacache_params = forward_batch.adacache_params
+            assert adacache_params is not None, "adacache_params is not initialized"
+            assert isinstance(
+                adacache_params, WanAdaCacheParams
+            ), "adacache_params is not a WanAdaCacheParams"
+            self.init_adacache(adacache_params)
+        
+        current_timestep = forward_context.current_timestep
+        num_inference_steps = forward_batch.num_inference_steps
+        
+        timestep_proj = kwargs["timestep_proj"]
+        temb = kwargs["temb"]
+        modulated_inp = timestep_proj if self.adacache_manager.params.use_ret_steps else temb
+        
+        return self.adacache_manager.should_use_cache_wan(
+            modulated_inp, current_timestep, num_inference_steps
+        )
+
+    def maybe_cache_states_adacache(
+        self, hidden_states: torch.Tensor, original_hidden_states: torch.Tensor
+    ) -> None:
+        """
+        Cache states for AdaCache.
+        """
+        if self.adacache_manager is None:
+            return
+        
+        # For AdaCache, we cache the features (modulated input)
+        forward_context = get_forward_context()
+        forward_batch = forward_context.forward_batch
+        if forward_batch is None:
+            return
+        
+        # Get the modulated input for caching
+        # We need to get this from the forward context or kwargs
+        # For simplicity, we'll use the hidden states directly
+        self.adacache_manager.cache_features_wan(hidden_states, original_hidden_states)
+
     def retrieve_cached_states(self, hidden_states: torch.Tensor) -> torch.Tensor:
+        # Check which cache method is being used
+        forward_context = get_forward_context()
+        forward_batch = forward_context.forward_batch
+        
+        if forward_batch is not None and forward_batch.enable_adacache:
+            # Use AdaCache retrieval
+            if self.adacache_manager is not None:
+                return self.adacache_manager.retrieve_cached_states_wan(hidden_states)
+        
+        # Use TeaCache retrieval (original implementation)
         if self.is_even:
             return hidden_states + self.previous_residual_even
         else:

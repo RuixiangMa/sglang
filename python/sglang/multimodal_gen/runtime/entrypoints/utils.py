@@ -31,7 +31,50 @@ def prepare_request(
     """
     Create a Req object with sampling_params as a parameter.
     """
-    req = Req(sampling_params=sampling_params, VSA_sparsity=server_args.VSA_sparsity)
+    # Handle AdaCache params before creating Req
+    # This ensures they are set before __post_init__ is called
+    enable_adacache = getattr(sampling_params, "enable_adacache", None)
+    if enable_adacache is True:
+        logger.info(
+            f"AdaCache enabled: threshold={sampling_params.adacache_threshold}, "
+            f"decay_factor={sampling_params.adacache_decay_factor}, "
+            f"growth_factor={sampling_params.adacache_growth_factor}"
+        )
+        if getattr(sampling_params, "adacache_params", None) is None:
+            from sglang.multimodal_gen.configs.sample.adacache import WanAdaCacheParams
+            sampling_params.adacache_params = WanAdaCacheParams(
+                adacache_threshold=sampling_params.adacache_threshold,
+                adacache_decay_factor=sampling_params.adacache_decay_factor,
+                adacache_growth_factor=sampling_params.adacache_growth_factor,
+                adacache_min_threshold=sampling_params.adacache_min_threshold,
+                adacache_max_threshold=sampling_params.adacache_max_threshold,
+                adacache_warmup_steps=sampling_params.adacache_warmup_steps,
+                adacache_diff_method=sampling_params.adacache_diff_method,
+                use_ret_steps=True,
+            )
+    elif enable_adacache is False:
+        sampling_params.adacache_params = None
+
+    # Create Req with sampling_params and cache params
+    req_kwargs = {
+        "sampling_params": sampling_params,
+        "VSA_sparsity": server_args.VSA_sparsity,
+    }
+    
+    # Explicitly pass cache params to avoid using default None values
+    if getattr(sampling_params, "adacache_params", None) is not None:
+        req_kwargs["adacache_params"] = sampling_params.adacache_params
+    if getattr(sampling_params, "enable_teacache", False) is True:
+        teacache_params = getattr(sampling_params, "teacache_params", None)
+        if teacache_params is not None:
+            req_kwargs["teacache_params"] = teacache_params
+            logger.debug(
+                f"TeaCache enabled: cache_type={teacache_params.cache_type}, "
+                f"teacache_thresh={teacache_params.teacache_thresh}"
+            )
+    
+    req = Req(**req_kwargs)
+    
     diffusers_kwargs = getattr(sampling_params, "diffusers_kwargs", None)
     if diffusers_kwargs:
         req.extra["diffusers_kwargs"] = diffusers_kwargs
