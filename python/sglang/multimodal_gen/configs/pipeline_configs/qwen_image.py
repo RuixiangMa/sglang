@@ -251,7 +251,6 @@ class QwenImageEditPipelineConfig(QwenImagePipelineConfig):
         self, batch, prompt_embeds, rotary_emb, device, dtype
     ):
         batch_size = batch.latents.shape[0]
-        assert batch_size == 1
         height = batch.height
         width = batch.width
         image_size = batch.original_condition_image_size
@@ -274,7 +273,7 @@ class QwenImageEditPipelineConfig(QwenImagePipelineConfig):
                 ),
             ],
         ] * batch_size
-        txt_seq_lens = [prompt_embeds[0].shape[1]]
+        txt_seq_lens = [prompt_embeds[0].shape[1]] * batch_size
 
         if rotary_emb is None:
             return {
