@@ -164,16 +164,17 @@ class DiffGenerator:
         multiple prompts, or None when every request failed.
         """
         # 1. prepare requests
-        prompts = self._resolve_prompts(sampling_params_kwargs.get("prompt"))
-        sampling_params = SamplingParams.from_user_sampling_params_args(
-            self.server_args.model_path,
-            server_args=self.server_args,
-            **sampling_params_kwargs,
-        )
-
+        kwargs = sampling_params_kwargs or {}
+        prompts = self._resolve_prompts(kwargs.get("prompt"))
         requests: list[Req] = []
         for p in prompts:
-            sampling_params.prompt = p
+            # Create independent SamplingParams for each prompt to avoid object sharing
+            sp_kwargs = {**kwargs, "prompt": p}
+            sampling_params = SamplingParams.from_user_sampling_params_args(
+                self.server_args.model_path,
+                server_args=self.server_args,
+                **sp_kwargs,
+            )
             req = prepare_request(
                 server_args=self.server_args,
                 sampling_params=sampling_params,
