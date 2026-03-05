@@ -39,6 +39,19 @@ def qwen_image_preprocess_text(prompt):
     return txt
 
 
+def _is_nested_image_list(images: list) -> bool:
+    """
+    Check if images is a nested list (batch > 1) or flat list (batch == 1).
+    
+    Args:
+        images: List of PIL images, either flat [img1, img2] or nested [[img1], [img2]]
+    
+    Returns:
+        True if nested list (batch > 1), False if flat list (batch == 1)
+    """
+    return bool(images) and isinstance(images[0], list)
+
+
 def qwen_image_postprocess_text(outputs, _text_inputs, drop_idx=34):
     # squeeze the batch dim
     hidden_states = outputs.hidden_states[-1]
