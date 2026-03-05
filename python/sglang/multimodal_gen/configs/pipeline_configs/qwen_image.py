@@ -544,7 +544,6 @@ class QwenImageLayeredPipelineConfig(QwenImageEditPipelineConfig):
         self, batch, prompt_embeds, rotary_emb, device, dtype
     ):
         batch_size = batch.latents.shape[0]
-        assert batch_size == 1
         height = batch.height
         width = batch.width
         image_size = batch.original_condition_image_size
@@ -573,7 +572,7 @@ class QwenImageLayeredPipelineConfig(QwenImageEditPipelineConfig):
             "txt_seq_lens": txt_seq_lens,
             "img_shapes": img_shapes,
             "freqs_cis": (img_cache, txt_cache),
-            "additional_t_cond": torch.tensor([0], device=device, dtype=torch.long),
+            "additional_t_cond": torch.tensor([0] * batch_size, device=device, dtype=torch.long),
         }
 
     def _unpad_and_unpack_latents(self, latents, batch):
