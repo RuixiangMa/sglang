@@ -431,14 +431,33 @@ class QwenImageEditPlusPipelineConfig(QwenImageEditPipelineConfig):
     def preprocess_vae_image(self, batch, vae_image_processor):
         if not isinstance(batch.condition_image, list):
             batch.condition_image = [batch.condition_image]
-        new_images = []
-        vae_image_sizes = []
-        for img in batch.condition_image:
-            width, height = self.calculate_vae_image_size(img, img.width, img.height)
-            new_images.append(vae_image_processor.preprocess(img, height, width))
-            vae_image_sizes.append((width, height))
-        batch.vae_image = new_images
-        batch.vae_image_sizes = vae_image_sizes
+
+        is_nested = _is_nested_image_list(batch.condition_image)
+
+        if is_nested:
+            all_vae_images = []
+            all_vae_sizes = []
+            for batch_images in batch.condition_image:
+                batch_vae_images = []
+                batch_vae_sizes = []
+                for img in batch_images:
+                    width, height = self.calculate_vae_image_size(img, img.width, img.height)
+                    batch_vae_images.append(vae_image_processor.preprocess(img, height, width))
+                    batch_vae_sizes.append((width, height))
+                all_vae_images.append(batch_vae_images)
+                all_vae_sizes.append(batch_vae_sizes)
+            batch.vae_image = all_vae_images
+            batch.vae_image_sizes = all_vae_sizes
+        else:
+            new_images = []
+            vae_image_sizes = []
+            for img in batch.condition_image:
+                width, height = self.calculate_vae_image_size(img, img.width, img.height)
+                new_images.append(vae_image_processor.preprocess(img, height, width))
+                vae_image_sizes.append((width, height))
+            batch.vae_image = new_images
+            batch.vae_image_sizes = vae_image_sizes
+
         return batch
 
     def _prepare_edit_cond_kwargs(
