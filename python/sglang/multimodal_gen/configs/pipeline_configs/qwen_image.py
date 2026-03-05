@@ -463,11 +463,16 @@ class QwenImageEditPlusPipelineConfig(QwenImageEditPipelineConfig):
         self, batch, prompt_embeds, rotary_emb, device, dtype
     ):
         batch_size = batch.latents.shape[0]
-        assert batch_size == 1
         height = batch.height
         width = batch.width
 
         vae_scale_factor = self.get_vae_scale_factor()
+
+        is_nested = (
+            isinstance(batch.vae_image_sizes[0], list)
+            if batch.vae_image_sizes else False
+        )
+        sizes_list = batch.vae_image_sizes if is_nested else [batch.vae_image_sizes]
 
         img_shapes = [
             [
@@ -478,11 +483,12 @@ class QwenImageEditPlusPipelineConfig(QwenImageEditPipelineConfig):
                         vae_height // vae_scale_factor // 2,
                         vae_width // vae_scale_factor // 2,
                     )
-                    for vae_width, vae_height in batch.vae_image_sizes
+                    for vae_width, vae_height in batch_vae_sizes
                 ],
-            ],
-        ] * batch_size
-        txt_seq_lens = [prompt_embeds[0].shape[1]]
+            ]
+            for batch_vae_sizes in sizes_list
+        ]
+        txt_seq_lens = [prompt_embeds[0].shape[1]] * batch_size
 
         freqs_cis = QwenImageEditPlusPipelineConfig.get_freqs_cis(
             img_shapes, txt_seq_lens, rotary_emb, device, dtype
