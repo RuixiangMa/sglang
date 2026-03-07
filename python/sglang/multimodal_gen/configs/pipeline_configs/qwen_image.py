@@ -374,6 +374,8 @@ class QwenImageEditPlusPipelineConfig(QwenImageEditPipelineConfig):
         prompt = batch.prompt if not neg else batch.negative_prompt
         prompt_list = [prompt] if isinstance(prompt, str) else prompt
         image_list = batch.condition_image
+        if not isinstance(image_list, list):
+            image_list = [image_list] if image_list else []
 
         prompt_template_encode = (
             "<|im_start|>system\nDescribe the key features of the input image "
@@ -385,12 +387,32 @@ class QwenImageEditPlusPipelineConfig(QwenImageEditPipelineConfig):
             "<|im_start|>assistant\n"
         )
         img_prompt_template = "Picture {}: <|vision_start|><|image_pad|><|vision_end|>"
-        if isinstance(image_list, list):
-            base_img_prompt = ""
-            for i, img in enumerate(image_list):
-                base_img_prompt += img_prompt_template.format(i + 1)
-        txt = [prompt_template_encode.format(base_img_prompt + p) for p in prompt_list]
-        return dict(text=txt, padding=True)
+
+        txt = []
+        per_prompt_images = []
+
+        multi_prompt_mode = len(prompt_list) > 1
+
+        for i, p in enumerate(prompt_list):
+            if multi_prompt_mode:
+                if len(image_list) == 1:
+                    img_prompt = img_prompt_template.format(1)
+                    per_prompt_images.append(image_list)
+                elif i < len(image_list):
+                    img_prompt = img_prompt_template.format(1)
+                    per_prompt_images.append([image_list[i]])
+                else:
+                    img_prompt = ""
+                    per_prompt_images.append([])
+            else:
+                img_prompt = "".join(
+                    img_prompt_template.format(j + 1) for j in range(len(image_list))
+                )
+                per_prompt_images.append(image_list)
+
+            txt.append(prompt_template_encode.format(img_prompt + p))
+
+        return dict(text=txt, padding=True, per_prompt_images=per_prompt_images)
 
     def prepare_calculated_size(self, image):
         return self.calculate_vae_image_size(image, image.width, image.height)
@@ -510,7 +532,6 @@ class QwenImageLayeredPipelineConfig(QwenImageEditPipelineConfig):
         assert batch_size == 1
         height = batch.height
         width = batch.width
-        image_size = batch.original_condition_image_size
 
         vae_scale_factor = self.get_vae_scale_factor()
 

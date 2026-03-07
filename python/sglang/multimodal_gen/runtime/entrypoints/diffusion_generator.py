@@ -174,12 +174,27 @@ class DiffGenerator:
         user_output_file_name = sampling_params_kwargs.get("output_file_name")
 
         requests: list[Req] = []
-        for p in prompts:
+        image_paths = sampling_params_orig.image_path
+        multi_prompt_mode = len(prompts) > 1
+
+        for i, p in enumerate(prompts):
             sampling_params = dataclasses.replace(
                 sampling_params_orig,
                 prompt=p,
                 output_file_name=user_output_file_name,
             )
+
+            if (
+                multi_prompt_mode
+                and isinstance(image_paths, list)
+                and len(image_paths) > 1
+            ):
+                if i < len(image_paths):
+                    sampling_params = dataclasses.replace(
+                        sampling_params,
+                        image_path=[image_paths[i]],
+                    )
+
             sampling_params._set_output_file_name()
             req = prepare_request(
                 server_args=self.server_args,
