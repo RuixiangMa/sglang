@@ -9,9 +9,9 @@ This module contains implementations of image encoding stages for diffusion pipe
 
 import PIL
 import torch
-
 from diffusers.models.autoencoders.vae import DiagonalGaussianDistribution
 from diffusers.models.modeling_outputs import AutoencoderKLOutput
+
 from sglang.multimodal_gen.configs.pipeline_configs.qwen_image import (
     qwen_image_postprocess_text,
 )
@@ -96,6 +96,9 @@ class ImageEncodingStage(PipelineStage):
         batch: Req,
         server_args: ServerArgs,
     ) -> Req:
+        """
+        Encode the prompt into image encoder hidden states.
+        """
 
         if batch.condition_image is None:
             return batch
@@ -129,6 +132,7 @@ class ImageEncodingStage(PipelineStage):
             ).to(cuda_device)
 
             if self.image_encoder:
+                # if an image encoder is provided
                 with set_forward_context(current_timestep=0, attn_metadata=None):
                     outputs = self.image_encoder(
                         **image_inputs,
@@ -139,6 +143,8 @@ class ImageEncodingStage(PipelineStage):
                     )
                 batch.image_embeds.append(image_embeds)
             elif self.text_encoder:
+                # if a text encoder is provided, e.g. Qwen-Image-Edit
+                # 1. neg prompt embeds
                 if batch.do_classifier_free_guidance:
                     neg_image_processor_kwargs = (
                         server_args.pipeline_config.prepare_image_processor_kwargs(
