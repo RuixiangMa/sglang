@@ -56,6 +56,37 @@ def qwen_image_postprocess_text(outputs, _text_inputs, drop_idx=34):
     return prompt_embeds
 
 
+def _normalize_prompt_list(prompt):
+    return [prompt] if isinstance(prompt, str) else prompt
+
+
+def _normalize_image_list(images):
+    if images is None:
+        return []
+    return images if isinstance(images, list) else [images]
+
+
+def _build_qwen_edit_image_prompt(num_images: int) -> str:
+    img_prompt_template = "Picture {}: <|vision_start|><|image_pad|><|vision_end|>"
+    return "".join(img_prompt_template.format(i + 1) for i in range(num_images))
+
+
+def _resolve_qwen_edit_per_prompt_images(prompt_list, image_list):
+    if len(prompt_list) <= 1:
+        return [image_list]
+
+    if len(image_list) <= 1:
+        return [list(image_list) for _ in prompt_list]
+
+    if len(image_list) != len(prompt_list):
+        raise ValueError(
+            "QwenImageEditPlus expects either one shared condition image or "
+            "the same number of condition images and prompts."
+        )
+
+    return [[image] for image in image_list]
+
+
 # Copied from diffusers.pipelines.qwenimage.pipeline_qwenimage.QwenImagePipeline._pack_latents
 def _pack_latents(latents, batch_size, num_channels_latents, height, width):
     latents = latents.view(
@@ -372,10 +403,14 @@ class QwenImageEditPlusPipelineConfig(QwenImageEditPipelineConfig):
 
     def prepare_image_processor_kwargs(self, batch, neg=False) -> dict:
         prompt = batch.prompt if not neg else batch.negative_prompt
-        prompt_list = [prompt] if isinstance(prompt, str) else prompt
-        image_list = batch.condition_image
-        if not isinstance(image_list, list):
-            image_list = [image_list] if image_list else []
+        if not prompt:
+            return {}
+
+        prompt_list = _normalize_prompt_list(prompt)
+        image_list = _normalize_image_list(batch.condition_image)
+        per_prompt_images = _resolve_qwen_edit_per_prompt_images(
+            prompt_list, image_list
+        )
 
         prompt_template_encode = (
             "<|im_start|>system\nDescribe the key features of the input image "
@@ -386,31 +421,12 @@ class QwenImageEditPlusPipelineConfig(QwenImageEditPipelineConfig):
             "<|im_start|>user\n{}<|im_end|>\n"
             "<|im_start|>assistant\n"
         )
-        img_prompt_template = "Picture {}: <|vision_start|><|image_pad|><|vision_end|>"
-
-        txt = []
-        per_prompt_images = []
-
-        multi_prompt_mode = len(prompt_list) > 1
-
-        for i, p in enumerate(prompt_list):
-            if multi_prompt_mode:
-                if len(image_list) == 1:
-                    img_prompt = img_prompt_template.format(1)
-                    per_prompt_images.append(image_list)
-                elif i < len(image_list):
-                    img_prompt = img_prompt_template.format(1)
-                    per_prompt_images.append([image_list[i]])
-                else:
-                    img_prompt = ""
-                    per_prompt_images.append([])
-            else:
-                img_prompt = "".join(
-                    img_prompt_template.format(j + 1) for j in range(len(image_list))
-                )
-                per_prompt_images.append(image_list)
-
-            txt.append(prompt_template_encode.format(img_prompt + p))
+        txt = [
+            prompt_template_encode.format(
+                _build_qwen_edit_image_prompt(len(prompt_images)) + prompt_text
+            )
+            for prompt_text, prompt_images in zip(prompt_list, per_prompt_images)
+        ]
 
         return dict(text=txt, padding=True, per_prompt_images=per_prompt_images)
 
