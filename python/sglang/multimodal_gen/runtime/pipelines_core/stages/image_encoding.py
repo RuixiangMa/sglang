@@ -9,6 +9,7 @@ This module contains implementations of image encoding stages for diffusion pipe
 
 import PIL
 import torch
+
 from diffusers.models.autoencoders.vae import DiagonalGaussianDistribution
 from diffusers.models.modeling_outputs import AutoencoderKLOutput
 from sglang.multimodal_gen.configs.pipeline_configs.qwen_image import (
