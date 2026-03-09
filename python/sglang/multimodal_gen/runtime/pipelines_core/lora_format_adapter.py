@@ -369,11 +369,11 @@ def _convert_ai_toolkit_flux_lora(
     for key in original_state_dict.keys():
         if key.startswith("single_blocks."):
             parts = key.split(".")
-            if len(parts) > 1:
+            if len(parts) > 1 and parts[1].isdigit():
                 num_single_layers = max(num_single_layers, int(parts[1]) + 1)
         elif key.startswith("double_blocks."):
             parts = key.split(".")
-            if len(parts) > 1:
+            if len(parts) > 1 and parts[1].isdigit():
                 num_double_layers = max(num_double_layers, int(parts[1]) + 1)
 
     lora_keys = ("lora_A", "lora_B")
