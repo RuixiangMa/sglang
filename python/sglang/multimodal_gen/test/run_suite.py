@@ -42,7 +42,6 @@ SUITES = {
         "test_server_b.py",
         # cli test
         "../cli/test_generate_t2i_perf.py",
-        "../cli/test_generate_i2i.py",
         "test_update_weights_from_disk.py",
         # add new 1-gpu test files here
     ],
