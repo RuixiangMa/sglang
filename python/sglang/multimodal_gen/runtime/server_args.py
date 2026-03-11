@@ -263,6 +263,7 @@ class ServerArgs:
     text_encoder_cpu_offload: bool | None = None
     image_encoder_cpu_offload: bool | None = None
     vae_cpu_offload: bool | None = None
+    vision_language_encoder_cpu_offload: bool | None = None
     use_fsdp_inference: bool = False
     pin_cpu_memory: bool = True
 
@@ -425,6 +426,8 @@ class ServerArgs:
                 self.image_encoder_cpu_offload = True
             if self.vae_cpu_offload is None:
                 self.vae_cpu_offload = True
+            if self.vision_language_encoder_cpu_offload is None:
+                self.vision_language_encoder_cpu_offload = True
         elif self.pipeline_config.task_type.is_image_gen():
             logger.info(
                 "Disabling some offloading (except dit, text_encoder) for image generation model"
@@ -437,6 +440,8 @@ class ServerArgs:
                 self.image_encoder_cpu_offload = False
             if self.vae_cpu_offload is None:
                 self.vae_cpu_offload = False
+            if self.vision_language_encoder_cpu_offload is None:
+                self.vision_language_encoder_cpu_offload = True
         else:
             if self.dit_cpu_offload is None:
                 self.dit_cpu_offload = True
@@ -446,6 +451,8 @@ class ServerArgs:
                 self.image_encoder_cpu_offload = True
             if self.vae_cpu_offload is None:
                 self.vae_cpu_offload = True
+            if self.vision_language_encoder_cpu_offload is None:
+                self.vision_language_encoder_cpu_offload = True
 
     def _adjust_attention_backend(self):
         if self.attention_backend in ["fa3", "fa4"]:
