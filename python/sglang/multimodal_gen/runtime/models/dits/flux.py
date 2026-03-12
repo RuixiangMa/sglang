@@ -18,8 +18,6 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 import torch
 import torch.nn as nn
-from torch.nn import LayerNorm as LayerNorm
-
 from diffusers.models.attention import AttentionModuleMixin
 from diffusers.models.modeling_outputs import Transformer2DModelOutput
 from diffusers.models.normalization import (
@@ -27,6 +25,8 @@ from diffusers.models.normalization import (
     AdaLayerNormZero,
     AdaLayerNormZeroSingle,
 )
+from torch.nn import LayerNorm as LayerNorm
+
 from sglang.multimodal_gen.configs.models.dits.flux import FluxConfig
 from sglang.multimodal_gen.runtime.layers.attention import USPAttention
 from sglang.multimodal_gen.runtime.layers.layernorm import RMSNorm, apply_qk_norm
