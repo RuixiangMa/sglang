@@ -18,6 +18,8 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 import torch
 import torch.nn as nn
+from torch.nn import LayerNorm as LayerNorm
+
 from diffusers.models.attention import AttentionModuleMixin
 from diffusers.models.modeling_outputs import Transformer2DModelOutput
 from diffusers.models.normalization import (
@@ -25,8 +27,6 @@ from diffusers.models.normalization import (
     AdaLayerNormZero,
     AdaLayerNormZeroSingle,
 )
-from torch.nn import LayerNorm as LayerNorm
-
 from sglang.multimodal_gen.configs.models.dits.flux import FluxConfig
 from sglang.multimodal_gen.runtime.layers.attention import USPAttention
 from sglang.multimodal_gen.runtime.layers.layernorm import RMSNorm, apply_qk_norm
@@ -50,6 +50,7 @@ from sglang.multimodal_gen.runtime.layers.visual_embedding import (
     CombinedTimestepGuidanceTextProjEmbeddings,
     CombinedTimestepTextProjEmbeddings,
 )
+from sglang.multimodal_gen.runtime.managers.forward_context import get_forward_context
 from sglang.multimodal_gen.runtime.models.dits.base import CachableDiT
 from sglang.multimodal_gen.runtime.platforms import current_platform
 from sglang.multimodal_gen.runtime.utils.layerwise_offload import OffloadableDiTMixin
@@ -865,6 +866,12 @@ class FluxTransformer2DModel(CachableDiT, OffloadableDiTMixin):
                 [diffusers.models.attention_processor](https://github.com/huggingface/diffusers/blob/main/src/diffusers/models/attention_processor.py).
 
         """
+        forward_context = get_forward_context()
+        forward_batch = forward_context.forward_batch if forward_context else None
+        self.enable_teacache = forward_batch is not None and getattr(
+            forward_batch, "enable_teacache", False
+        )
+
         if (
             joint_attention_kwargs is not None
             and joint_attention_kwargs.get("scale", None) is not None
@@ -892,22 +899,33 @@ class FluxTransformer2DModel(CachableDiT, OffloadableDiTMixin):
             ip_hidden_states = self.encoder_hid_proj(ip_adapter_image_embeds)
             joint_attention_kwargs.update({"ip_hidden_states": ip_hidden_states})
 
-        for block in self.transformer_blocks:
-            encoder_hidden_states, hidden_states = block(
-                hidden_states=hidden_states,
-                encoder_hidden_states=encoder_hidden_states,
-                temb=temb,
-                freqs_cis=freqs_cis,
-                joint_attention_kwargs=joint_attention_kwargs,
-            )
-        for block in self.single_transformer_blocks:
-            encoder_hidden_states, hidden_states = block(
-                hidden_states=hidden_states,
-                encoder_hidden_states=encoder_hidden_states,
-                temb=temb,
-                freqs_cis=freqs_cis,
-                joint_attention_kwargs=joint_attention_kwargs,
-            )
+        should_skip_forward = self.should_skip_forward_for_cached_states(temb=temb)
+
+        if should_skip_forward:
+            hidden_states = self.retrieve_cached_states(hidden_states)
+        else:
+            if self.enable_teacache:
+                original_hidden_states = hidden_states.clone()
+
+            for block in self.transformer_blocks:
+                encoder_hidden_states, hidden_states = block(
+                    hidden_states=hidden_states,
+                    encoder_hidden_states=encoder_hidden_states,
+                    temb=temb,
+                    freqs_cis=freqs_cis,
+                    joint_attention_kwargs=joint_attention_kwargs,
+                )
+            for block in self.single_transformer_blocks:
+                encoder_hidden_states, hidden_states = block(
+                    hidden_states=hidden_states,
+                    encoder_hidden_states=encoder_hidden_states,
+                    temb=temb,
+                    freqs_cis=freqs_cis,
+                    joint_attention_kwargs=joint_attention_kwargs,
+                )
+
+            if self.enable_teacache:
+                self.maybe_cache_states(hidden_states, original_hidden_states)
 
         hidden_states = self.norm_out(hidden_states, temb)
 

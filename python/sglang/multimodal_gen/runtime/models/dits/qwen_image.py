@@ -5,16 +5,16 @@
 import functools
 from typing import Any, Dict, List, Optional, Tuple, Union
 
-import diffusers
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
+import diffusers
 from diffusers.models.attention import FeedForward
 from diffusers.models.embeddings import TimestepEmbedding, Timesteps
 from diffusers.models.modeling_outputs import Transformer2DModelOutput
 from diffusers.models.normalization import AdaLayerNormContinuous
-
 from sglang.jit_kernel.diffusion.triton.scale_shift import (
     fuse_scale_shift_gate_select01_kernel,
 )
@@ -43,6 +43,7 @@ from sglang.multimodal_gen.runtime.layers.quantization.configs.nunchaku_config i
 from sglang.multimodal_gen.runtime.layers.rotary_embedding import (
     apply_flashinfer_rope_qk_inplace,
 )
+from sglang.multimodal_gen.runtime.managers.forward_context import get_forward_context
 from sglang.multimodal_gen.runtime.models.dits.base import CachableDiT
 from sglang.multimodal_gen.runtime.platforms import (
     AttentionBackendEnum,
@@ -1137,12 +1138,18 @@ class QwenImageTransformer2DModel(CachableDiT, OffloadableDiTMixin):
                 [diffusers.models.attention_processor](https://github.com/huggingface/diffusers/blob/main/src/diffusers/models/attention_processor.py).
             return_dict (`bool`, *optional*, defaults to `True`):
                 Whether or not to return a [`~models.transformer_2d.Transformer2DModelOutput`] instead of a plain
-                tuple.
+                `tuple`.
 
         Returns:
             If `return_dict` is True, an [`~models.transformer_2d.Transformer2DModelOutput`] is returned, otherwise a
             `tuple` where the first element is the sample tensor.
         """
+        forward_context = get_forward_context()
+        forward_batch = forward_context.forward_batch if forward_context else None
+        self.enable_teacache = forward_batch is not None and getattr(
+            forward_batch, "enable_teacache", False
+        )
+
         if (
             attention_kwargs is not None
             and attention_kwargs.get("scale", None) is not None
@@ -1178,29 +1185,41 @@ class QwenImageTransformer2DModel(CachableDiT, OffloadableDiTMixin):
             temb_txt = temb
             temb_txt_silu = temb_img_silu
 
-        image_rotary_emb = freqs_cis
-        for index_block, block in enumerate(self.transformer_blocks):
-            encoder_hidden_states, hidden_states = block(
-                hidden_states=hidden_states,
-                encoder_hidden_states=encoder_hidden_states,
-                encoder_hidden_states_mask=encoder_hidden_states_mask,
-                temb_img_silu=temb_img_silu,
-                temb_txt_silu=temb_txt_silu,
-                image_rotary_emb=image_rotary_emb,
-                joint_attention_kwargs=attention_kwargs,
-                modulate_index=modulate_index,
-            )
+        should_skip_forward = self.should_skip_forward_for_cached_states(temb=temb)
 
-            # controlnet residual
-            if controlnet_block_samples is not None:
-                interval_control = len(self.transformer_blocks) / len(
-                    controlnet_block_samples
+        if should_skip_forward:
+            hidden_states = self.retrieve_cached_states(hidden_states)
+        else:
+            if self.enable_teacache:
+                original_hidden_states = hidden_states.clone()
+
+            image_rotary_emb = freqs_cis
+            for index_block, block in enumerate(self.transformer_blocks):
+                encoder_hidden_states, hidden_states = block(
+                    hidden_states=hidden_states,
+                    encoder_hidden_states=encoder_hidden_states,
+                    encoder_hidden_states_mask=encoder_hidden_states_mask,
+                    temb_img_silu=temb_img_silu,
+                    temb_txt_silu=temb_txt_silu,
+                    image_rotary_emb=image_rotary_emb,
+                    joint_attention_kwargs=attention_kwargs,
+                    modulate_index=modulate_index,
                 )
-                interval_control = int(np.ceil(interval_control))
-                hidden_states = (
-                    hidden_states
-                    + controlnet_block_samples[index_block // interval_control]
-                )
+
+                # controlnet residual
+                if controlnet_block_samples is not None:
+                    interval_control = len(self.transformer_blocks) / len(
+                        controlnet_block_samples
+                    )
+                    interval_control = int(np.ceil(interval_control))
+                    hidden_states = (
+                        hidden_states
+                        + controlnet_block_samples[index_block // interval_control]
+                    )
+
+            if self.enable_teacache:
+                self.maybe_cache_states(hidden_states, original_hidden_states)
+
         # Use only the image part (hidden_states) from the dual-stream blocks
         hidden_states = self.norm_out(hidden_states, temb_txt)
 
