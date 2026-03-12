@@ -831,6 +831,11 @@ class ServerArgs:
             help="Use CPU offload for VAE. Enable if run out of memory.",
         )
         parser.add_argument(
+            "--vision-language-encoder-cpu-offload",
+            action=StoreBoolean,
+            help="Use CPU offload for vision language encoder (GLM-Image). Enable if run out of memory.",
+        )
+        parser.add_argument(
             "--pin-cpu-memory",
             action=StoreBoolean,
             help='Pin memory for CPU offload. Only added as a temp workaround if it throws "CUDA error: invalid argument". '
