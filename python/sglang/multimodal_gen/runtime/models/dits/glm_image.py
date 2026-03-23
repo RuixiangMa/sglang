@@ -37,7 +37,6 @@ from sglang.multimodal_gen.runtime.layers.rotary_embedding import (
     apply_flashinfer_rope_qk_inplace,
 )
 from sglang.multimodal_gen.runtime.layers.visual_embedding import Timesteps
-from sglang.multimodal_gen.runtime.managers.forward_context import get_forward_context
 from sglang.multimodal_gen.runtime.models.dits.base import CachableDiT
 from sglang.multimodal_gen.runtime.platforms import (
     AttentionBackendEnum,
@@ -805,11 +804,7 @@ class GlmImageTransformer2DModel(CachableDiT, OffloadableDiTMixin):
         ###
         guidance: torch.Tensor = None,  # TODO: this should probably be removed
     ) -> Tuple[torch.Tensor]:
-        forward_context = get_forward_context()
-        forward_batch = forward_context.forward_batch if forward_context else None
-        self.enable_teacache = forward_batch is not None and getattr(
-            forward_batch, "enable_teacache", False
-        )
+        self._update_teacache_status()
 
         if kv_caches is not None:
             kv_caches.set_mode(kv_caches_mode)
@@ -855,14 +850,10 @@ class GlmImageTransformer2DModel(CachableDiT, OffloadableDiTMixin):
         temb = F.silu(temb)
 
         # 3. Transformer blocks
-        should_skip_forward = self.should_skip_forward_for_cached_states(temb=temb)
-
-        if should_skip_forward:
-            hidden_states = self.retrieve_cached_states(hidden_states)
+        skip, hs_or_orig = self.teacache_skip_or_prepare(hidden_states, temb)
+        if skip:
+            hidden_states = hs_or_orig
         else:
-            if self.enable_teacache:
-                original_hidden_states = hidden_states.clone()
-
             for idx, block in enumerate(self.transformer_blocks):
                 hidden_states, encoder_hidden_states = block(
                     hidden_states,
@@ -873,9 +864,7 @@ class GlmImageTransformer2DModel(CachableDiT, OffloadableDiTMixin):
                     attention_kwargs,
                     kv_cache=kv_caches[idx] if kv_caches is not None else None,
                 )
-
-            if self.enable_teacache:
-                self.maybe_cache_states(hidden_states, original_hidden_states)
+            self.teacache_finalize(hidden_states, hs_or_orig)
 
         # 4. Output norm & projection
         hidden_states = self.norm_out(hidden_states, temb)

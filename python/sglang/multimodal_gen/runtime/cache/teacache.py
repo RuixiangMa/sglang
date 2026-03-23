@@ -159,6 +159,19 @@ class TeaCacheMixin:
             self.previous_residual_negative: torch.Tensor | None = None
             self.accumulated_rel_l1_distance_negative: float = 0.0
 
+    def _update_teacache_status(self) -> None:
+        # Reads enable_teacache flag from forward_batch context.
+        # Lazy import required to avoid circular dependency with runtime.managers.
+        from sglang.multimodal_gen.runtime.managers.forward_context import (
+            get_forward_context,
+        )
+
+        forward_context = get_forward_context()
+        forward_batch = forward_context.forward_batch if forward_context else None
+        self.enable_teacache = forward_batch is not None and getattr(
+            forward_batch, "enable_teacache", False
+        )
+
     def reset_teacache_state(self) -> None:
         """Reset all TeaCache state at the start of each generation task."""
         self.cnt = 0
@@ -366,12 +379,26 @@ class TeaCacheMixin:
         return not should_calc
 
     def retrieve_cached_states(self, hidden_states: torch.Tensor) -> torch.Tensor:
-        """Retrieve cached states by adding residual.
-
-        This default implementation handles CFG-aware caching by retrieving
-        the appropriate residual based on the current CFG branch.
-        """
+        # Adds cached residual to hidden_states. CFG-aware: uses separate residual
+        # for negative branch (previous_residual_negative) vs positive branch.
         if not self.is_cfg_negative:
             return hidden_states + self.previous_residual
         else:
             return hidden_states + self.previous_residual_negative
+
+    def teacache_skip_or_prepare(
+        self, hidden_states: torch.Tensor, temb: torch.Tensor
+    ) -> tuple[bool, torch.Tensor | None]:
+        # Combined cache check + preparation for block execution.
+        # Returns (True, cached_result) to skip blocks entirely.
+        # Returns (False, original_tensor) to run blocks; original is cloned for later caching.
+        if self.should_skip_forward_for_cached_states(temb=temb):
+            return True, self.retrieve_cached_states(hidden_states)
+        return False, hidden_states.clone() if self.enable_teacache else None
+
+    def teacache_finalize(
+        self, hidden_states: torch.Tensor, original: torch.Tensor | None
+    ) -> None:
+        # Called after block execution to cache the residual (output - original).
+        if self.enable_teacache and original is not None:
+            self.maybe_cache_states(hidden_states, original)

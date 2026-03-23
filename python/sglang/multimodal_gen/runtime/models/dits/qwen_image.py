@@ -5,16 +5,16 @@
 import functools
 from typing import Any, Dict, List, Optional, Tuple, Union
 
-import diffusers
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
+import diffusers
 from diffusers.models.attention import FeedForward
 from diffusers.models.embeddings import TimestepEmbedding, Timesteps
 from diffusers.models.modeling_outputs import Transformer2DModelOutput
 from diffusers.models.normalization import AdaLayerNormContinuous
-
 from sglang.jit_kernel.diffusion.triton.scale_shift import (
     fuse_scale_shift_gate_select01_kernel,
 )
@@ -43,7 +43,6 @@ from sglang.multimodal_gen.runtime.layers.quantization.configs.nunchaku_config i
 from sglang.multimodal_gen.runtime.layers.rotary_embedding import (
     apply_flashinfer_rope_qk_inplace,
 )
-from sglang.multimodal_gen.runtime.managers.forward_context import get_forward_context
 from sglang.multimodal_gen.runtime.models.dits.base import CachableDiT
 from sglang.multimodal_gen.runtime.platforms import (
     AttentionBackendEnum,
@@ -1144,11 +1143,7 @@ class QwenImageTransformer2DModel(CachableDiT, OffloadableDiTMixin):
             If `return_dict` is True, an [`~models.transformer_2d.Transformer2DModelOutput`] is returned, otherwise a
             `tuple` where the first element is the sample tensor.
         """
-        forward_context = get_forward_context()
-        forward_batch = forward_context.forward_batch if forward_context else None
-        self.enable_teacache = forward_batch is not None and getattr(
-            forward_batch, "enable_teacache", False
-        )
+        self._update_teacache_status()
 
         if (
             attention_kwargs is not None
@@ -1185,14 +1180,11 @@ class QwenImageTransformer2DModel(CachableDiT, OffloadableDiTMixin):
             temb_txt = temb
             temb_txt_silu = temb_img_silu
 
-        should_skip_forward = self.should_skip_forward_for_cached_states(temb=temb)
+        skip, hs_or_orig = self.teacache_skip_or_prepare(hidden_states, temb)
 
-        if should_skip_forward:
-            hidden_states = self.retrieve_cached_states(hidden_states)
+        if skip:
+            hidden_states = hs_or_orig
         else:
-            if self.enable_teacache:
-                original_hidden_states = hidden_states.clone()
-
             image_rotary_emb = freqs_cis
             for index_block, block in enumerate(self.transformer_blocks):
                 encoder_hidden_states, hidden_states = block(
@@ -1217,8 +1209,7 @@ class QwenImageTransformer2DModel(CachableDiT, OffloadableDiTMixin):
                         + controlnet_block_samples[index_block // interval_control]
                     )
 
-            if self.enable_teacache:
-                self.maybe_cache_states(hidden_states, original_hidden_states)
+            self.teacache_finalize(hidden_states, hs_or_orig)
 
         # Use only the image part (hidden_states) from the dual-stream blocks
         hidden_states = self.norm_out(hidden_states, temb_txt)

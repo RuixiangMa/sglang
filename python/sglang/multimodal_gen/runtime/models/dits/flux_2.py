@@ -16,10 +16,10 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import torch
 import torch.nn as nn
+
 from diffusers.models.attention import AttentionModuleMixin
 from diffusers.models.embeddings import TimestepEmbedding, Timesteps
 from diffusers.models.normalization import AdaLayerNormContinuous
-
 from sglang.multimodal_gen.configs.models.dits.flux import FluxConfig
 from sglang.multimodal_gen.runtime.layers.attention import USPAttention
 from sglang.multimodal_gen.runtime.layers.layernorm import RMSNorm, apply_qk_norm
@@ -31,7 +31,6 @@ from sglang.multimodal_gen.runtime.layers.rotary_embedding import (
     NDRotaryEmbedding,
     apply_flashinfer_rope_qk_inplace,
 )
-from sglang.multimodal_gen.runtime.managers.forward_context import get_forward_context
 from sglang.multimodal_gen.runtime.models.dits.base import CachableDiT
 from sglang.multimodal_gen.runtime.platforms import current_platform
 from sglang.multimodal_gen.runtime.utils.layerwise_offload import OffloadableDiTMixin
@@ -839,11 +838,7 @@ class Flux2Transformer2DModel(CachableDiT, OffloadableDiTMixin):
                 [diffusers.models.attention_processor](https://github.com/huggingface/diffusers/blob/main/src/diffusers/models/attention_processor.py).
 
         """
-        forward_context = get_forward_context()
-        forward_batch = forward_context.forward_batch if forward_context else None
-        self.enable_teacache = forward_batch is not None and getattr(
-            forward_batch, "enable_teacache", False
-        )
+        self._update_teacache_status()
 
         # 0. Handle input arguments
         if joint_attention_kwargs is not None:
@@ -869,14 +864,11 @@ class Flux2Transformer2DModel(CachableDiT, OffloadableDiTMixin):
         hidden_states, _ = self.x_embedder(hidden_states)
         encoder_hidden_states, _ = self.context_embedder(encoder_hidden_states)
 
-        should_skip_forward = self.should_skip_forward_for_cached_states(temb=temb)
+        skip, hs_or_orig = self.teacache_skip_or_prepare(hidden_states, temb)
 
-        if should_skip_forward:
-            hidden_states = self.retrieve_cached_states(hidden_states)
+        if skip:
+            hidden_states = hs_or_orig
         else:
-            if self.enable_teacache:
-                original_hidden_states = hidden_states.clone()
-
             # 3. Calculate RoPE embeddings from image and text tokens
             # NOTE: the below logic means that we can't support batched inference with images of different resolutions or
             # text prompts of different lengths. Is this a use case we want to support?
@@ -906,8 +898,7 @@ class Flux2Transformer2DModel(CachableDiT, OffloadableDiTMixin):
             # Remove text tokens from concatenated stream
             hidden_states = hidden_states[:, num_txt_tokens:, ...]
 
-            if self.enable_teacache:
-                self.maybe_cache_states(hidden_states, original_hidden_states)
+            self.teacache_finalize(hidden_states, hs_or_orig)
 
         # 6. Output layers
         hidden_states = self.norm_out(hidden_states, temb)
