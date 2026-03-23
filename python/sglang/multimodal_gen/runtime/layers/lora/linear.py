@@ -304,9 +304,7 @@ class BaseLayerWithLoRA(nn.Module):
         delta = merged_weight
 
         delta_elements = delta.numel()
-        target_elements = 1
-        for dim in target_shape:
-            target_elements *= dim
+        target_elements = torch.Size(target_shape).numel()
 
         if delta_elements != target_elements:
             raise ValueError(
